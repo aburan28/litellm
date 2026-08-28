@@ -7,9 +7,9 @@
 # None of the proxy server runtime is pulled in. To run a proxy server instead,
 # use scripts/install.sh, which installs litellm[proxy].
 #
-# Needs only curl: uv is bootstrapped if missing, and uv provisions a compatible
-# Python itself (honouring litellm's requires-python), downloading a managed one
-# when the host has no suitable interpreter.
+# Needs curl and either sha256sum or shasum: uv is bootstrapped if missing, and uv
+# provisions a compatible Python itself (honouring litellm's requires-python),
+# downloading a managed one when the host has no suitable interpreter.
 #
 # To try an unreleased branch instead of the latest PyPI release (for example, to
 # QA a CLI feature before it ships), set LITELLM_CLI_REF to a branch, tag, or commit:
@@ -27,6 +27,7 @@ else
   LITELLM_PACKAGE="litellm[cli]"
 fi
 UV_VERSION="0.10.9"
+UV_INSTALLER_SHA256="7fc46e39cb97290b57169c0c813a17970585ac519139f19006453c99b5f2f45f"
 
 # ── colours ────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -89,8 +90,26 @@ if [ -z "$UV_BIN" ] || [ "${CURRENT_UV_VERSION:-}" != "$UV_VERSION" ]; then
   if [ -n "${CURRENT_UV_VERSION:-}" ]; then
     info "Upgrading uv from ${CURRENT_UV_VERSION} to ${UV_VERSION}"
   fi
-  curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | env UV_NO_MODIFY_PATH=1 sh \
-    || die "uv installation failed. Try manually: curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh"
+  UV_INSTALLER_PATH="$(mktemp "${TMPDIR:-/tmp}/litellm-uv-install.XXXXXX")" \
+    || die "Could not create a temporary file for the uv installer"
+  cleanup_uv_installer() { rm -f "$UV_INSTALLER_PATH"; }
+  trap cleanup_uv_installer 0
+  trap 'exit 1' HUP INT TERM
+  curl -LsSf -o "$UV_INSTALLER_PATH" "https://astral.sh/uv/${UV_VERSION}/install.sh" \
+    || die "Could not download the uv installer"
+  if command -v sha256sum >/dev/null 2>&1; then
+    UV_INSTALLER_ACTUAL_SHA256="$(sha256sum "$UV_INSTALLER_PATH" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    UV_INSTALLER_ACTUAL_SHA256="$(shasum -a 256 "$UV_INSTALLER_PATH" | awk '{print $1}')"
+  else
+    die "A SHA-256 utility (sha256sum or shasum) is required to install uv"
+  fi
+  [ "$UV_INSTALLER_ACTUAL_SHA256" = "$UV_INSTALLER_SHA256" ] \
+    || die "uv installer checksum verification failed"
+  env UV_NO_MODIFY_PATH=1 sh "$UV_INSTALLER_PATH" || die "uv installation failed"
+  cleanup_uv_installer
+  UV_INSTALLER_PATH=""
+  trap - 0 HUP INT TERM
   UV_BIN="$HOME/.local/bin/uv"
 fi
 
