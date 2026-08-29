@@ -98,10 +98,23 @@ column reads `AZURE_AI_API_KEY` / `AZURE_AI_API_BASE` (previously
 Run as `mateo` on the cron VM:
 
 ```bash
+set -e
+
 # 1. Toolchain
 sudo apt-get update
 sudo apt-get install -y git nodejs npm jq curl
-curl -LsSf https://astral.sh/uv/install.sh | sh
+uv_archive="uv-x86_64-unknown-linux-gnu.tar.gz"
+uv_tmpdir="$(mktemp -d)"
+trap 'rm -rf "$uv_tmpdir"' EXIT
+curl --proto '=https' --tlsv1.2 -LsSf -o "$uv_tmpdir/$uv_archive" \
+  "https://releases.astral.sh/github/uv/releases/download/0.10.9/$uv_archive"
+echo "20d79708222611fa540b5c9ed84f352bcd3937740e51aacc0f8b15b271c57594  $uv_tmpdir/$uv_archive" | sha256sum -c -
+tar -xzf "$uv_tmpdir/$uv_archive" -C "$uv_tmpdir" "uv-x86_64-unknown-linux-gnu/uv"
+mkdir -p "$HOME/.local/bin"
+install -m 0755 "$uv_tmpdir/uv-x86_64-unknown-linux-gnu/uv" "$HOME/.local/bin/uv"
+export PATH="$HOME/.local/bin:$PATH"
+rm -rf "$uv_tmpdir"
+trap - EXIT
 sudo apt-get install -y gh   # or follow https://cli.github.com/
 
 # 2. Claude Code CLI (the cron does NOT auto-upgrade this; rerun this
